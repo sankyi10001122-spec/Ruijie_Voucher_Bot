@@ -130,10 +130,10 @@ async def start(message):
     )
     await bot.reply_to(
         message,
-        "✨ **Ruijie Voucher Bot** မှ ကြိုဆိုပါတယ် ဗျာ! ⚡\n\n"
+        "✨ <b>Ruijie Voucher Bot</b> မှ ကြိုဆိုပါတယ် ဗျာ! ⚡\n\n"
         "အောက်ပါခလုတ်များကို အသုံးပြု၍ စီမံနိုင်ပါသည် 👇",
         reply_markup=markup,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -142,14 +142,14 @@ async def callback_query(call):
     data = call.data
     if data == "btn_scan_help":
         await bot.answer_callback_query(call.id, "💡 ညွှန်ကြားချက်: /input <url> ဖြင့် အရင်ချိတ်ပါ")
-        await bot.send_message(chat_id, "📌 <u>အသုံးပြုပုံ</u>:\n၁။ `/input your_url` ဖြင့် Session URL ထည့်ပါ[span_28](start_span)[span_28](end_span)[span_29](start_span)[span_29](end_span)[span_30](start_span)[span_30](end_span)[span_31](start_span)[span_31](end_span)[span_32](start_span)[span_32](end_span)[span_33](start_span)[span_33](end_span)[span_34](start_span)[span_34](end_span)[span_35](start_span)[span_35](end_span)[span_36](start_span)[span_36](end_span)[span_37](start_span)[span_37](end_span)[span_38](start_span)[span_38](end_span)[span_39](start_span)[span_39](end_span)[span_40](start_span)[span_40](end_span)[span_41](start_span)[span_41](end_span)\n၂။ `/scan 6` (သို့) `/scan all` ဖြင့် စတင်ပါ[span_42](start_span)[span_42](end_span)[span_43](start_span)[span_43](end_span)[span_44](start_span)[span_44](end_span)[span_45](start_span)[span_45](end_span)[span_46](start_span)[span_46](end_span)[span_47](start_span)[span_47](end_span)[span_48](start_span)[span_48](end_span)[span_49](start_span)[span_49](end_span)[span_50](start_span)[span_50](end_span)[span_51](start_span)[span_51](end_span)[span_52](start_span)[span_52](end_span)[span_53](start_span)[span_53](end_span)[span_54](start_span)[span_54](end_span)[span_55](start_span)[span_55](end_span)", parse_mode="HTML")
+        await bot.send_message(chat_id, "📌 <b>အသုံးပြုပုံ</b>:\n၁။ <code>/input your_url</code> ဖြင့် Session URL ထည့်ပါ\n၂။ <code>/scan 6</code> (သို့) <code>/scan all</code> ဖြင့် စတင်ပါ", parse_mode="HTML")
     elif data == "btn_help":
         await bot.answer_callback_query(call.id, "ℹ️ အကူအညီ မီနူး")
-        await bot.send_message(chat_id, "📖 Commands:\n/input - URL ထည့်ရန်\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်")
+        await bot.send_message(chat_id, "📖 <b>Commands:</b>\n/input - URL ထည့်ရန်\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်", parse_mode="HTML")
     elif data == "btn_status":
         active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
         await bot.answer_callback_query(call.id, f"📊 အခြေအနေ: {active}")
-        await bot.send_message(chat_id, f"📊 လက်ရှိ Bot အခြေအနေ:\n• Status: {active}\n• Active Scans: {len(scan_tasks)}")
+        await bot.send_message(chat_id, f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}", parse_mode="HTML")
     elif data == "btn_stop":
         await bot.answer_callback_query(call.id, "🛑 စကန်ဖတ်မှုကို ရပ်လိုက်ပါပြီ")
         data_task = scan_tasks.get(chat_id)
@@ -159,7 +159,7 @@ async def callback_query(call):
             scan_tasks.pop(chat_id, None)
             await bot.send_message(chat_id, "✅ စကန်ဖတ်ခြင်း အောင်မြင်စွာ ရပ်သွားပါပြီ။")
         else:
-            await bot.send_message(chat_id, "⚠️ လက်လွှတ်စရာ စကန်ဖတ်မှု မရှိပါ။")
+            await bot.send_message(chat_id, "⚠️ လက်ရှိ စကန်ဖတ်နေခြင်း မရှိပါ။")
 
 async def check_session_url(session_url):
     headers = {
@@ -179,7 +179,7 @@ async def handle_input(message):
     chat_id = message.chat.id
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await bot.reply_to(message, "⚠️ <b>Usage:</b> `/input your_session_url`", parse_mode="HTML")
+        await bot.reply_to(message, "⚠️ <b>Usage:</b> <code>/input your_session_url</code>", parse_mode="HTML")
         return
     url = args[1]
     user_data.setdefault(chat_id, {})
@@ -194,7 +194,7 @@ async def handle_input(message):
 async def scan(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await bot.reply_to(message, "⚠️ <b>Usage:</b> `/scan <6, 7, 8, ascii-lower, all>`", parse_mode="HTML")
+        await bot.reply_to(message, "⚠️ <b>Usage:</b> <code>/scan [6, 7, 8, ascii-lower, all]</code>", parse_mode="HTML")
         return
     mode = args[1]
     chat_id = message.chat.id
@@ -202,7 +202,7 @@ async def scan(message):
         await bot.reply_to(message, "❌ Mode သည် 6, 7, 8, all, ascii-lower ထဲမှ တစ်ခုဖြစ်ရပါမည်။")
         return
     if chat_id not in user_data or 'session_url' not in user_data[chat_id]:
-        await bot.reply_to(message, "⚠️ ပထမဦးစွာ `/input` ဖြင့် Session URL ထည့်သွင်းပေးပါရန်။")
+        await bot.reply_to(message, "⚠️ ပထမဦးစွာ <code>/input</code> ဖြင့် Session URL ထည့်သွင်းပေးပါရန်။", parse_mode="HTML")
         return
 
     if chat_id in scan_tasks and not scan_tasks[chat_id]["task"].done():
@@ -284,27 +284,10 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
     global _voucher_sem
     _voucher_sem = asyncio.Semaphore(CONCURRENCY)
     pending = set()
-    last_update = time.monotonic()
 
     async def _check(code):
         async with _voucher_sem:
             return await perform_check(session_url, code, chat_id, scan_id, message=message)
-
-    async def _flush_progress():
-        nonlocal last_update
-        now = time.monotonic()
-        if now - last_update < 2.0:
-            return
-        last_update = now
-        elapsed = now - scan_start
-        speed = (checked / elapsed * 60) if elapsed > 0 else 0
-        found = len(success_texts.get(chat_id, []))
-        retries = retry_counts.get(chat_id, 0)
-        text = format_progress(checked, total, speed, found, retries)
-        try:
-            await safe_edit_message_text(chat_id=chat_id, message_id=progress_msg.message_id, text=text, parse_mode="HTML")
-        except Exception:
-            pass
 
     try:
         for code in code_iter:
@@ -317,7 +300,6 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
             if len(pending) >= CONCURRENCY:
                 done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 checked += len(done)
-                await _flush_progress()
         while pending:
             done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             checked += len(done)
@@ -365,7 +347,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, message=None):
         success_texts[chat_id].append(f"🎫 <code>{code}</code>")
         if message:
             try:
-                await safe_send_message(message.chat.id, f"🎉 **Success Code Found!**\n\n🎫 Code: <code>{code}</code>", parse_mode="HTML")
+                await safe_send_message(message.chat.id, f"🎉 <b>Success Code Found!</b>\n\n🎫 Code: <code>{code}</code>", parse_mode="HTML")
             except Exception:
                 pass
 
