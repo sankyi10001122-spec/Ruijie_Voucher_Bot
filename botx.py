@@ -1,6 +1,5 @@
 import telebot, asyncio, aiohttp, json, base64, random, re, os, string, time, uuid, concurrent.futures
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiohttp import web
 import cv2
 import ddddocr
@@ -66,54 +65,28 @@ async def safe_edit_message_text(chat_id, message_id, text, **kwargs):
 bot.send_message = safe_send_message
 bot.edit_message_text = safe_edit_message_text
 
-@bot.message_handler(commands=['start'])
+@bot.message_handler(commands=['start', 'help'])
 async def start(message):
-    markup = InlineKeyboardMarkup()
-    markup.add(
-        InlineKeyboardButton("🚀 စကန်ဖတ်ရန် (Scan)", callback_data="btn_scan_help"),
-        InlineKeyboardButton("📌 အကူအညီ (Help)", callback_data="btn_help")
-    )
-    markup.add(
-        InlineKeyboardButton("⚙️ အခြေအနေ (Status)", callback_data="btn_status"),
-        InlineKeyboardButton("🛑 ရပ်ရန် (Stop)", callback_data="btn_stop")
-    )
     await bot.reply_to(
         message,
         "✨ <b>Ruijie Voucher Bot</b> မှ ကြိုဆိုပါတယ် ဗျာ! ⚡\n\n"
-        "အောက်ပါခလုတ်များကို အသုံးပြု၍ စီမံနိုင်ပါသည် 👇",
-        reply_markup=markup,
+        "📖 <b>အသုံးပြုနိုင်သော Commands များ:</b>\n"
+        "• <code>/input your_wifidog_url</code> - Wifidog Session URL ထည့်ရန်\n"
+        "• <code>/scan 6</code> (သို့မဟုတ် <code>7</code>, <code>all</code>) - စကန်ဖတ်ရန်\n"
+        "• <code>/status</code> - လက်ရှိအခြေအနေ ကြည့်ရန်\n"
+        "• <code>/stop</code> - စကန်ဖတ်ခြင်း ရပ်တန့်ရန်",
         parse_mode="HTML"
     )
 
-@bot.callback_query_handler(func=lambda call: True)
-async def callback_query(call):
-    try:
-        await bot.answer_callback_query(call.id)
-    except Exception:
-        pass
-
-    if not call.message:
-        return
-
-    chat_id = call.message.chat.id
-    data = call.data
-
-    if data == "btn_scan_help":
-        await safe_send_message(chat_id, "📌 <b>အသုံးပြုပုံ</b>:\n၁။ <code>/input your_wifidog_url</code> ဖြင့် Session URL ထည့်ပါ\n၂။ <code>/scan 6</code> (သို့) <code>/scan all</code> ဖြင့် စတင်ပါ", parse_mode="HTML")
-    elif data == "btn_help":
-        await safe_send_message(chat_id, "📖 <b>Commands:</b>\n/input - Ruijie URL ထည့်ရန်\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်", parse_mode="HTML")
-    elif data == "btn_status":
-        active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
-        await safe_send_message(chat_id, f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}", parse_mode="HTML")
-    elif data == "btn_stop":
-        data_task = scan_tasks.get(chat_id)
-        if data_task and not data_task["task"].done():
-            data_task["stop"] = True
-            data_task["task"].cancel()
-            scan_tasks.pop(chat_id, None)
-            await safe_send_message(chat_id, "✅ စကန်ဖတ်ခြင်း အောင်မြင်စွာ ရပ်သွားပါပြီ။")
-        else:
-            await safe_send_message(chat_id, "⚠️ လက်ရှိ စကန်ဖတ်နေခြင်း မရှိပါ။")
+@bot.message_handler(commands=['status'])
+async def status_cmd(message):
+    chat_id = message.chat.id
+    active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
+    await bot.reply_to(
+        message,
+        f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}",
+        parse_mode="HTML"
+    )
 
 async def check_session_url(session_url):
     try:
