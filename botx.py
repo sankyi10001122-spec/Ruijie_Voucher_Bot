@@ -21,14 +21,11 @@ scan_tasks = {}
 success_texts = {}
 limited_texts = {}
 retry_counts = {}
-_session_pool = {}
 
 session = None
 _connector = None
 _voucher_sem = None
 
-SESSION_POOL_LIMIT = 60
-SESSION_POOL_SLOTS = 5
 CONCURRENCY = 2500
 
 async def handle(request):
@@ -98,9 +95,9 @@ async def callback_query(call):
         pass
 
     if data == "btn_scan_help":
-        await bot.send_message(chat_id, "📌 <b>အသုံးပြုပုံ</b>:\n၁။ <code>/input your_url</code> ဖြင့် Session URL ထည့်ပါ\n၂။ <code>/scan 6</code> (သို့) <code>/scan all</code> ဖြင့် စတင်ပါ", parse_mode="HTML")
+        await bot.send_message(chat_id, "📌 <b>အသုံးပြုပုံ</b>:\n၁။ <code>/input your_wifidog_url</code> ဖြင့် Session URL ထည့်ပါ[span_4](start_span)[span_4](end_span)[span_5](start_span)[span_5](end_span)\n၂။ <code>/scan 6</code> (သို့) <code>/scan all</code> ဖြင့် စတင်ပါ", parse_mode="HTML")
     elif data == "btn_help":
-        await bot.send_message(chat_id, "📖 <b>Commands:</b>\n/input - URL ထည့်ရန်\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်", parse_mode="HTML")
+        await bot.send_message(chat_id, "📖 <b>Commands:</b>\n/input - Ruijie URL ထည့်ရန်[span_6](start_span)[span_6](end_span)[span_7](start_span)[span_7](end_span)\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်", parse_mode="HTML")
     elif data == "btn_status":
         active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
         await bot.send_message(chat_id, f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}", parse_mode="HTML")
@@ -116,7 +113,8 @@ async def callback_query(call):
 
 async def check_session_url(session_url):
     try:
-        async with session.get(session_url, allow_redirects=True) as response:
+        headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        async with session.get(session_url, allow_redirects=True, headers=headers) as response:
             final_url = str(response.url)
             body = await response.text()
             return "sessionId" in final_url or "sessionId" in body or response.status in (200, 302, 301)
@@ -128,11 +126,11 @@ async def handle_input(message):
     chat_id = message.chat.id
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await bot.reply_to(message, "⚠️ <b>Usage:</b> <code>/input your_session_url</code>", parse_mode="HTML")
+        await bot.reply_to(message, "⚠️ <b>Usage:</b> <code>/input your_wifidog_url</code>", parse_mode="HTML")
         return
     url = args[1]
     user_data.setdefault(chat_id, {})
-    await bot.reply_to(message, "🔄 Session URL အား စစ်ဆေးနေပါပြီ ⏳...")
+    await bot.reply_to(message, "🔄 Wifidog Session URL အား စစ်ဆေးနေပါပြီ ⏳...")
     if await check_session_url(session_url=url):
         user_data[chat_id]['session_url'] = url
         await bot.reply_to(message, "✅ Session URL အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ 🎉! /scan ဖြင့် စတင်နိုင်ပါပြီ။")
@@ -274,7 +272,11 @@ async def get_session_id(session, session_url, previous_session_id=None):
     try:
         async with session.get(session_url, allow_redirects=True) as req:
             match = re.search(r"[?&]sessionId=([a-zA-Z0-9]+)", str(req.url))
-            return match.group(1) if match else previous_session_id
+            if match:
+                return match.group(1)
+            body = await req.text()
+            match_body = re.search(r"sessionId=([a-zA-Z0-9]+)", body)
+            return match_body.group(1) if match_body else previous_session_id
     except Exception:
         return previous_session_id
 
