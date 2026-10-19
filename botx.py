@@ -87,29 +87,33 @@ async def start(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 async def callback_query(call):
-    chat_id = call.message.chat.id
-    data = call.data
     try:
         await bot.answer_callback_query(call.id)
     except Exception:
         pass
 
+    if not call.message:
+        return
+
+    chat_id = call.message.chat.id
+    data = call.data
+
     if data == "btn_scan_help":
-        await bot.send_message(chat_id, "📌 <b>အသုံးပြုပုံ</b>:\n၁။ <code>/input your_wifidog_url</code> ဖြင့် Session URL ထည့်ပါ[span_4](start_span)[span_4](end_span)[span_5](start_span)[span_5](end_span)\n၂။ <code>/scan 6</code> (သို့) <code>/scan all</code> ဖြင့် စတင်ပါ", parse_mode="HTML")
+        await safe_send_message(chat_id, "📌 <b>အသုံးပြုပုံ</b>:\n၁။ <code>/input your_wifidog_url</code> ဖြင့် Session URL ထည့်ပါ\n၂။ <code>/scan 6</code> (သို့) <code>/scan all</code> ဖြင့် စတင်ပါ", parse_mode="HTML")
     elif data == "btn_help":
-        await bot.send_message(chat_id, "📖 <b>Commands:</b>\n/input - Ruijie URL ထည့်ရန်[span_6](start_span)[span_6](end_span)[span_7](start_span)[span_7](end_span)\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်", parse_mode="HTML")
+        await safe_send_message(chat_id, "📖 <b>Commands:</b>\n/input - Ruijie URL ထည့်ရန်\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်", parse_mode="HTML")
     elif data == "btn_status":
         active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
-        await bot.send_message(chat_id, f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}", parse_mode="HTML")
+        await safe_send_message(chat_id, f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}", parse_mode="HTML")
     elif data == "btn_stop":
         data_task = scan_tasks.get(chat_id)
         if data_task and not data_task["task"].done():
             data_task["stop"] = True
             data_task["task"].cancel()
             scan_tasks.pop(chat_id, None)
-            await bot.send_message(chat_id, "✅ စကန်ဖတ်ခြင်း အောင်မြင်စွာ ရပ်သွားပါပြီ။")
+            await safe_send_message(chat_id, "✅ စကန်ဖတ်ခြင်း အောင်မြင်စွာ ရပ်သွားပါပြီ။")
         else:
-            await bot.send_message(chat_id, "⚠️ လက်ရှိ စကန်ဖတ်နေခြင်း မရှိပါ။")
+            await safe_send_message(chat_id, "⚠️ လက်ရှိ စကန်ဖတ်နေခြင်း မရှိပါ။")
 
 async def check_session_url(session_url):
     try:
@@ -285,18 +289,18 @@ async def perform_check(session_url, code, chat_id, message=None):
     response = None
     for _attempt in range(3):
         async with aiohttp.ClientSession(connector=_connector, connector_owner=False, timeout=aiohttp.ClientTimeout(total=30)) as task_session:
-            session_id = await get_session_id(task_session, session_url)
-            if not session_id:
+            callback_session_id = await get_session_id(task_session, session_url)
+            if not callback_session_id:
                 return
             try:
-                img = await task_session.get(f'https://portal-as.ruijienetworks.com/api/auth/captcha/image?sessionId={session_id}&_t={time.time()}')
+                img = await task_session.get(f'https://portal-as.ruijienetworks.com/api/auth/captcha/image?sessionId={callback_session_id}&_t={time.time()}')
                 img_bytes = await img.read()
                 ocr_text = _ocr.classification(img_bytes).upper()
-                verify = await task_session.post('https://portal-as.ruijienetworks.com/api/auth/captcha/verify', json={'sessionId': session_id, 'authCode': ocr_text})
+                verify = await task_session.post('https://portal-as.ruijienetworks.com/api/auth/captcha/verify', json={'sessionId': callback_session_id, 'authCode': ocr_text})
                 v_data = await verify.json()
                 if not v_data.get("success"):
                     continue
-                async with task_session.post(post_url, json={"accessCode": code, "sessionId": session_id, "apiVersion": 1, "authCode": ocr_text}) as req:
+                async with task_session.post(post_url, json={"accessCode": code, "sessionId": callback_session_id, "apiVersion": 1, "authCode": ocr_text}) as req:
                     response = await req.text()
                     if req.status in (401, 403):
                         return
