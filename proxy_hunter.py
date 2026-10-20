@@ -8,7 +8,7 @@ import aiohttp
 from aiohttp import web
 from aiohttp_socks import ProxyConnector
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 PORT = int(os.environ.get("PORT", "8099"))
@@ -28,14 +28,10 @@ PROXY_SOURCES = {
 }
 
 
-def main_keyboard() -> InlineKeyboardMarkup:
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton("🔎 HTTP စစ်ရန်", callback_data="check:HTTP"),
-        InlineKeyboardButton("🔐 HTTPS စစ်ရန်", callback_data="check:HTTPS"),
-        InlineKeyboardButton("🧦 SOCKS5 စစ်ရန်", callback_data="check:SOCKS5"),
-        InlineKeyboardButton("📊 Status", callback_data="status"),
-    )
+def main_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
+    keyboard.row(KeyboardButton("🔎 HTTP ရှာရန်"), KeyboardButton("🔐 HTTPS ရှာရန်"))
+    keyboard.row(KeyboardButton("🧦 SOCKS5 ရှာရန်"), KeyboardButton("📊 Status"))
     return keyboard
 
 
@@ -68,21 +64,6 @@ async def start(message):
 @bot.message_handler(commands=["status"])
 async def status_cmd(message):
     await bot.reply_to(message, "📊 Bot အခြေအနေ — အသင့်ဖြစ်နေပါပြီ 🟢", reply_markup=main_keyboard())
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "status")
-async def status_callback(call):
-    await bot.answer_callback_query(call.id, "Bot အသင့်ဖြစ်နေပါပြီ 🟢")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("check:"))
-async def proxy_button_callback(call):
-    proxy_type = call.data.split(":", 1)[1].upper()
-    if proxy_type not in PROXY_SOURCES:
-        await bot.answer_callback_query(call.id, "မသိသော proxy အမျိုးအစားပါ။", show_alert=True)
-        return
-    await bot.answer_callback_query(call.id, f"{proxy_type} စစ်ဆေးနေပါသည်…")
-    await hunt_proxy_process(call.message, proxy_type)
 
 
 @bot.message_handler(commands=["http"])
