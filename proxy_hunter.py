@@ -8,14 +8,13 @@ import aiohttp
 from aiohttp import web
 from aiohttp_socks import ProxyConnector
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 PORT = int(os.environ.get("PORT", "8099"))
-MAX_PROXIES = int(os.environ.get("MAX_PROXIES", "300"))
+MAX_PROXIES = int(os.environ.get("MAX_PROXIES", "200"))
 CONCURRENCY = max(1, int(os.environ.get("CONCURRENCY", "40")))
 
-# IP စစ်ဆေးရန် ယုံကြည်စိတ်ချရသော API မျိုးစုံ (တစ်ခုမရရင် တစ်ခုသုံးရန်)
 CHECK_URLS = [
     "https://api.ipify.org",
     "https://icanhazip.com",
@@ -33,17 +32,14 @@ PROXY_SOURCES = {
     "SOCKS5": "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all&ssl=all&anonymity=all",
 }
 
-
 def main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
-    keyboard.row(KeyboardButton("🔎 HTTP ရှာရန်"), KeyboardButton("🔐 HTTPS ရှာရန်"))
-    keyboard.row(KeyboardButton("🧦 SOCKS5 ရှာရန်"), KeyboardButton("📊 Status"))
+    keyboard.row(KeyboardButton("/http"), KeyboardButton("/https"))
+    keyboard.row(KeyboardButton("/socks5"), KeyboardButton("/status"))
     return keyboard
-
 
 async def handle(request: web.Request) -> web.Response:
     return web.Response(text="Proxy Hunter Bot is running.")
-
 
 async def web_server() -> None:
     app = web.Application()
@@ -53,57 +49,34 @@ async def web_server() -> None:
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-
 @bot.message_handler(commands=["start", "help"])
 async def start(message):
     await bot.reply_to(
         message,
-        "<b>Proxy Hunter Bot</b>\n\n"
-        "အောက်ပါခလုတ်ကိုနှိပ်ပြီး စစ်ဆေးလိုသော Proxy အမျိုးအစားကို ရွေးချယ်ပါ။\n"
-        "အလုပ်လုပ်သော Proxy များကို IP လိပ်စာ၊ တုံ့ပြန်ချိန် (ms) တို့နှင့်တကွ ဖော်ပြပေးပါမည်။",
+        "<b>Proxy Hunter Bot (Command Version)</b>\n\n"
+        "အောက်ပါ Commands များကို အသုံးပြု၍ Proxy ရှာဖွေနိုင်ပါသည်:\n"
+        "• <code>/http</code> - HTTP Proxies ရှာရန်\n"
+        "• <code>/https</code> - HTTPS Proxies ရှာရန်\n"
+        "• <code>/socks5</code> - SOCKS5 Proxies ရှာရန်\n"
+        "• <code>/status</code> - Bot အခြေအနေ",
         reply_markup=main_keyboard(),
     )
-
 
 @bot.message_handler(commands=["status"])
 async def status_cmd(message):
     await bot.reply_to(message, "📊 Bot အခြေအနေ — အသင့်ဖြစ်နေပါပြီ 🟢", reply_markup=main_keyboard())
 
-
 @bot.message_handler(commands=["http"])
 async def cmd_http(message):
     await hunt_proxy_process(message, "HTTP")
-
 
 @bot.message_handler(commands=["https"])
 async def cmd_https(message):
     await hunt_proxy_process(message, "HTTPS")
 
-
 @bot.message_handler(commands=["socks5"])
 async def cmd_socks5(message):
     await hunt_proxy_process(message, "SOCKS5")
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("copy|"))
-async def copy_proxy_button(call):
-    proxy = call.data.split("|", 1)[1]
-    await bot.answer_callback_query(call.id, "Proxy ကို သီးခြားစာအဖြစ် ပို့လိုက်ပါပြီ။")
-    await bot.send_message(call.message.chat.id, f"<code>{html.escape(proxy)}</code>")
-
-
-@bot.message_handler(func=lambda message: bool(message.text))
-async def legacy_keyboard_handler(message):
-    text = message.text.strip().lower()
-    if "status" in text or "အခြေအနေ" in text:
-        await bot.reply_to(message, "📊 Bot အခြေအနေ — အသင့်ဖြစ်နေပါပြီ 🟢", reply_markup=main_keyboard())
-    elif "socks5" in text:
-        await hunt_proxy_process(message, "SOCKS5")
-    elif "https" in text:
-        await hunt_proxy_process(message, "HTTPS")
-    elif "http" in text:
-        await hunt_proxy_process(message, "HTTP")
-
 
 async def fetch_proxy_list(proxy_type: str) -> List[str]:
     timeout = aiohttp.ClientTimeout(total=20, connect=10)
@@ -126,10 +99,9 @@ async def fetch_proxy_list(proxy_type: str) -> List[str]:
             proxies.append(proxy)
     return proxies[:MAX_PROXIES]
 
-
 async def check_one_proxy(proxy: str, proxy_type: str, semaphore: asyncio.Semaphore) -> Tuple[str, float | None, str | None]:
     async with semaphore:
-        timeout = aiohttp.ClientTimeout(total=8, connect=5, sock_read=5)
+        timeout = aiohttp.ClientTimeout(total=6, connect=3, sock_read=3)
         started = time.perf_counter()
         ip_address = None
         
@@ -159,14 +131,12 @@ async def check_one_proxy(proxy: str, proxy_type: str, semaphore: asyncio.Semaph
             
         return proxy, None, None
 
-
 def speed_label(milliseconds: float) -> str:
     if milliseconds < 1000:
-        return "မြန်"
+        return "မြန် ⚡"
     if milliseconds < 3000:
-        return "အလယ်"
-    return "နှေး"
-
+        return "အလယ် 🟡"
+    return "နှေး 🐢"
 
 def progress_bar(completed: int, total: int, width: int = 12) -> str:
     if total <= 0:
@@ -174,25 +144,21 @@ def progress_bar(completed: int, total: int, width: int = 12) -> str:
     filled = min(width, int(completed * width / total))
     return "█" * filled + "░" * (width - filled)
 
-
-async def send_results_in_chunks(chat_id: int, title: str, results: List[Tuple[str, float, str]]) -> None:
-    batches = [results[i:i + 10] for i in range(0, len(results), 10)]
+async def send_results(chat_id: int, title: str, results: List[Tuple[str, float, str]]) -> None:
+    batches = [results[i:i + 15] for i in range(0, len(results), 15)]
     for part, batch in enumerate(batches, 1):
-        keyboard = InlineKeyboardMarkup(row_width=1)
-        text_lines = [f"<b>{html.escape(title)} — {part}/{len(batches)}</b>"]
+        text_lines = [f"<b>{html.escape(title)} — ပိုင်း {part}/{len(batches)}</b>\n"]
         for proxy, milliseconds, ip in batch:
             safe_proxy = html.escape(proxy)
             safe_ip = html.escape(ip or "N/A")
-            text_lines.append(f"<code>{safe_proxy}</code> (IP: {safe_ip}) — {speed_label(milliseconds)} — {milliseconds:.0f} ms")
-            keyboard.add(InlineKeyboardButton(f"📋 {proxy}", callback_data=f"copy|{proxy}"))
+            text_lines.append(f"• <code>{safe_proxy}</code> | IP: <code>{safe_ip}</code> | {speed_label(milliseconds)} ({milliseconds:.0f} ms)")
+        
         await bot.send_message(
             chat_id,
             "\n".join(text_lines),
-            disable_web_page_preview=True,
-            reply_markup=keyboard,
+            disable_web_page_preview=True
         )
-    await bot.send_message(chat_id, "အောက်ပါခလုတ်များမှ Proxy ကိုရွေးပါ။", reply_markup=main_keyboard())
-
+    await bot.send_message(chat_id, "စစ်ဆေးမှု ပြီးဆုံးပါပြီ။", reply_markup=main_keyboard())
 
 async def hunt_proxy_process(message, proxy_type: str) -> None:
     chat_id = message.chat.id
@@ -205,7 +171,6 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
             chat_id,
             status_message.message_id,
         )
-        await bot.send_message(chat_id, "အောက်ပါခလုတ်မှ ပြန်လည်ရွေးချယ်နိုင်ပါသည်။", reply_markup=main_keyboard())
         return
 
     if not proxies:
@@ -214,7 +179,6 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
             chat_id,
             status_message.message_id,
         )
-        await bot.send_message(chat_id, "Proxy စာရင်း မရရှိပါ။", reply_markup=main_keyboard())
         return
 
     await bot.edit_message_text(
@@ -230,38 +194,25 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
     tasks = [check_one_proxy(proxy, proxy_type, semaphore) for proxy in proxies]
     results = []
 
-    async def typing_animation() -> None:
-        while True:
-            try:
-                await bot.send_chat_action(chat_id, "typing")
-            except Exception:
-                pass
-            await asyncio.sleep(4)
-
-    animation_task = asyncio.create_task(typing_animation())
     try:
         for completed, future in enumerate(asyncio.as_completed(tasks), 1):
             result = await future
             if result[1] is not None:
                 results.append(result)
-            if completed % 10 == 0 or completed == len(tasks):
+            if completed % 15 == 0 or completed == len(tasks):
                 try:
                     await bot.edit_message_text(
                         f"🧪 <b>{proxy_type} Proxy များကို စမ်းသပ်နေပါသည်…</b>\n\n"
                         f"[{progress_bar(completed, len(tasks))}] {completed * 100 // len(tasks)}%\n"
                         f"စစ်ဆေးပြီး — {completed}/{len(tasks)} ခု\n"
-                        f"အသုံးပြုနိုင် — {len(results)} ခု | မြန်နှုန်း — {CONCURRENCY} ခု တစ်ပြိုင်နက်",
+                        f"အသုံးပြုနိုင် — {len(results)} ခု",
                         chat_id,
                         status_message.message_id,
                     )
                 except Exception:
                     pass
-    finally:
-        animation_task.cancel()
-        try:
-            await animation_task
-        except asyncio.CancelledError:
-            pass
+    except Exception:
+        pass
 
     if not results:
         await bot.edit_message_text(
@@ -269,7 +220,6 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
             chat_id,
             status_message.message_id,
         )
-        await bot.send_message(chat_id, "အခြား Proxy အမျိုးအစားကို ရွေးနိုင်ပါသည်။", reply_markup=main_keyboard())
         return
 
     results.sort(key=lambda item: item[1])
@@ -278,17 +228,16 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
     slow = sum(ms >= 3000 for _, ms, _ in results)
     summary = (
         f"✅ စစ်ဆေးပြီး — {len(proxies)} ခု | အလုပ်လုပ် — {len(results)} ခု\n"
-        f"⚡ မြန် (<1 စက္ကန့်): {fast} | 🟡 အသင့်အတင့် (1–3 စက္ကန့်): {medium} | 🐢 နှေး (≥3 စက္ကန့်): {slow}"
+        f"⚡ မြန်: {fast} | 🟡 အသင့်အတင့်: {medium} | 🐢 နှေး: {slow}"
     )
     await bot.edit_message_text(
         f"🎉 <b>{proxy_type} ရလဒ်</b>\n{summary}\n\n"
-        f"📋 အလုပ်လုပ်သော proxy အားလုံး ({len(results)} ခု) ကို အောက်တွင် ပို့နေပါသည်။",
+        f"📋 အလုပ်လုပ်သော proxy များကို ပို့ပေးနေပါပြီ...",
         chat_id,
         status_message.message_id,
     )
 
-    await send_results_in_chunks(chat_id, f"{proxy_type} အသုံးပြုနိုင်သော Proxy ({len(results)} ခု)", results)
-
+    await send_results(chat_id, f"{proxy_type} အသုံးပြုနိုင်သော Proxy ({len(results)} ခု)", results)
 
 async def start_polling() -> None:
     while True:
@@ -299,10 +248,8 @@ async def start_polling() -> None:
         except Exception:
             await asyncio.sleep(5)
 
-
 async def main() -> None:
     await asyncio.gather(web_server(), start_polling())
-
 
 if __name__ == "__main__":
     asyncio.run(main())
