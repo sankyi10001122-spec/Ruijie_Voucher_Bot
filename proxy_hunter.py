@@ -8,12 +8,12 @@ import aiohttp
 from aiohttp import web
 from aiohttp_socks import ProxyConnector
 from telebot.async_telebot import AsyncTeleBot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 PORT = int(os.environ.get("PORT", "8099"))
 MAX_PROXIES = int(os.environ.get("MAX_PROXIES", "300"))
-CONCURRENCY = int(os.environ.get("CONCURRENCY", "25"))
+CONCURRENCY = max(1, int(os.environ.get("CONCURRENCY", "40")))
 CHECK_URL = os.environ.get("CHECK_URL", "https://api.ipify.org?format=json")
 
 if not BOT_TOKEN:
@@ -79,6 +79,13 @@ async def cmd_https(message):
 @bot.message_handler(commands=["socks5"])
 async def cmd_socks5(message):
     await hunt_proxy_process(message, "SOCKS5")
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("copy|"))
+async def copy_proxy_button(call):
+    proxy = call.data.split("|", 1)[1]
+    await bot.answer_callback_query(call.id, "Proxy ကို သီးခြားစာအဖြစ် ပို့လိုက်ပါပြီ။")
+    await bot.send_message(call.message.chat.id, f"<code>{html.escape(proxy)}</code>")
 
 
 @bot.message_handler(func=lambda message: bool(message.text))
@@ -152,26 +159,30 @@ def speed_label(milliseconds: float) -> str:
     return "နှေး"
 
 
-async def send_results_in_chunks(chat_id: int, title: str, lines: List[str]) -> None:
-    # Telegram messages have a 4096-character limit; keep a safe margin.
-    prefix = f"<b>{html.escape(title)}</b>\n"
-    chunks = []
-    current = prefix
-    for line in lines:
-        safe_line = html.escape(line)
-        addition = f"\n<code>{safe_line}</code>"
-        if len(current) + len(addition) > 3800:
-            chunks.append(current)
-            current = prefix + addition
-        else:
-            current += addition
-    if current != prefix or not chunks:
-        chunks.append(current)
-    total_parts = len(chunks)
-    for index, chunk in enumerate(chunks, 1):
-        if total_parts > 1:
-            chunk = f"{chunk}\n\n<i>အပိုင်း {index}/{total_parts}</i>"
-        await bot.send_message(chat_id, chunk, disable_web_page_preview=True)
+def progress_bar(completed: int, total: int, width: int = 12) -> str:
+    if total <= 0:
+        return "░" * width
+    filled = min(width, int(completed * width / total))
+    return "█" * filled + "░" * (width - filled)
+
+
+async def send_results_in_chunks(chat_id: int, title: str, results: List[Tuple[str, float]]) -> None:
+    # Keep each message compact; each proxy gets its own inline button.
+    batches = [results[i:i + 10] for i in range(0, len(results), 10)]
+    for part, batch in enumerate(batches, 1):
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        text_lines = [f"<b>{html.escape(title)} — {part}/{len(batches)}</b>"]
+        for proxy, milliseconds in batch:
+            safe_proxy = html.escape(proxy)
+            text_lines.append(f"<code>{safe_proxy}</code> — {speed_label(milliseconds)} — {milliseconds:.0f} ms")
+            keyboard.add(InlineKeyboardButton(f"📋 {proxy}", callback_data=f"copy|{proxy}"))
+        await bot.send_message(
+            chat_id,
+            "\n".join(text_lines),
+            disable_web_page_preview=True,
+            reply_markup=keyboard,
+        )
+    await bot.send_message(chat_id, "အောက်ပါခလုတ်များမှ Proxy ကိုရွေးပါ။ ရွေးထားသော Proxy ကို သီးခြားစာအဖြစ် ပို့ပေးမည်ဖြစ်ပြီး အဲဒီစာကို ဖိထားကာ Copy လုပ်နိုင်ပါသည်။", reply_markup=main_keyboard())
 
 
 async def hunt_proxy_process(message, proxy_type: str) -> None:
@@ -184,8 +195,8 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
             f"❌ Proxy စာရင်းရယူမရပါ။ ခဏကြာပြီး ပြန်စမ်းပါ။\n<code>{html.escape(str(exc)[:500])}</code>",
             chat_id,
             status_message.message_id,
-            reply_markup=main_keyboard(),
         )
+        await bot.send_message(chat_id, "အောက်ပါခလုတ်မှ ထပ်မံရွေးချယ်နိုင်ပါသည်။", reply_markup=main_keyboard())
         return
 
     if not proxies:
@@ -193,13 +204,15 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
             f"❌ {proxy_type} proxy စာရင်း မရရှိပါ။",
             chat_id,
             status_message.message_id,
-            reply_markup=main_keyboard(),
         )
+        await bot.send_message(chat_id, "Proxy စာရင်း မရရှိပါ။ အောက်ပါခလုတ်မှ ပြန်လည်ရွေးချယ်နိုင်ပါသည်။", reply_markup=main_keyboard())
         return
 
     await bot.edit_message_text(
-        f"🧪 <b>{proxy_type} Proxy များကို စမ်းသပ်နေပါသည်…</b>\n"
-        f"စာရင်းရရှိမှု — {len(proxies)} ခု | တစ်ပြိုင်နက် စစ်ဆေးမှု — {CONCURRENCY} ခု",
+        f"🧪 <b>{proxy_type} Proxy များကို စမ်းသပ်နေပါသည်…</b>\n\n"
+        f"[{progress_bar(0, len(proxies))}] 0%\n"
+        f"စစ်ဆေးပြီး — 0/{len(proxies)} ခု\n"
+        f"တစ်ပြိုင်နက် စစ်ဆေးမှု — {CONCURRENCY} ခု",
         chat_id,
         status_message.message_id,
     )
@@ -226,9 +239,10 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
             if completed % 10 == 0 or completed == len(tasks):
                 try:
                     await bot.edit_message_text(
-                        f"🧪 <b>{proxy_type} Proxy များကို စမ်းသပ်နေပါသည်…</b>\n"
+                        f"🧪 <b>{proxy_type} Proxy များကို စမ်းသပ်နေပါသည်…</b>\n\n"
+                        f"[{progress_bar(completed, len(tasks))}] {completed * 100 // len(tasks)}%\n"
                         f"စစ်ဆေးပြီး — {completed}/{len(tasks)} ခု\n"
-                        f"အသုံးပြုနိုင် — {len(results)} ခု",
+                        f"အသုံးပြုနိုင် — {len(results)} ခု | မြန်နှုန်း — {CONCURRENCY} ခု တစ်ပြိုင်နက်",
                         chat_id,
                         status_message.message_id,
                     )
@@ -247,8 +261,8 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
             f"❌ {proxy_type} proxy {len(proxies)} ခုကို စစ်ပြီးပါပြီ။ အသုံးပြုနိုင်တာ မတွေ့ပါ။",
             chat_id,
             status_message.message_id,
-            reply_markup=main_keyboard(),
         )
+        await bot.send_message(chat_id, "အခြား Proxy အမျိုးအစားကို ရွေးနိုင်ပါသည်။", reply_markup=main_keyboard())
         return
 
     results.sort(key=lambda item: item[1])
@@ -265,11 +279,9 @@ async def hunt_proxy_process(message, proxy_type: str) -> None:
         f"📋 အလုပ်လုပ်သော proxy အားလုံး ({len(results)} ခု) ကို အောက်တွင် ပို့နေပါသည်။",
         chat_id,
         status_message.message_id,
-        reply_markup=main_keyboard(),
     )
 
-    proxy_lines = [f"{proxy} — {speed_label(ms)} — {ms:.0f} ms" for proxy, ms in results]
-    await send_results_in_chunks(chat_id, f"{proxy_type} အသုံးပြုနိုင်သော proxy များ ({len(results)} ခု)", proxy_lines)
+    await send_results_in_chunks(chat_id, f"{proxy_type} အသုံးပြုနိုင်သော Proxy ({len(results)} ခု)", results)
 
 
 async def start_polling() -> None:
