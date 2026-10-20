@@ -1,1 +1,1 @@
-web: python botx.py
+web:python proxy_hunter.py
