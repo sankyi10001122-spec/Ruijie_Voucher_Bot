@@ -100,6 +100,20 @@ async def cmd_socks5(message):
     await hunt_proxy_process(message, "SOCKS5")
 
 
+@bot.message_handler(func=lambda message: bool(message.text))
+async def legacy_keyboard_handler(message):
+    """Accept text sent by older Telegram Reply Keyboard buttons as well."""
+    text = message.text.strip().lower()
+    if "status" in text or "အခြေအနေ" in text:
+        await bot.reply_to(message, "📊 Bot အခြေအနေ — အသင့်ဖြစ်နေပါပြီ 🟢", reply_markup=main_keyboard())
+    elif "socks5" in text:
+        await hunt_proxy_process(message, "SOCKS5")
+    elif "https" in text:
+        await hunt_proxy_process(message, "HTTPS")
+    elif "http" in text:
+        await hunt_proxy_process(message, "HTTP")
+
+
 async def fetch_proxy_list(proxy_type: str) -> List[str]:
     timeout = aiohttp.ClientTimeout(total=20, connect=10)
     headers = {"User-Agent": "ProxyHunterBot/1.0"}
