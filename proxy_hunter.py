@@ -14,7 +14,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 PORT = int(os.environ.get("PORT", "8099"))
 MAX_PROXIES = int(os.environ.get("MAX_PROXIES", "300"))
 CONCURRENCY = max(1, int(os.environ.get("CONCURRENCY", "40")))
-CHECK_URL = os.environ.get("CHECK_URL", "https://api.ipify.org?format=json")
+CHECK_URL = "https://api.ipify.org"
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable မသတ်မှတ်ရသေးပါ။")
@@ -126,24 +126,23 @@ async def check_one_proxy(proxy: str, proxy_type: str, semaphore: asyncio.Semaph
         timeout = aiohttp.ClientTimeout(total=8, connect=5, sock_read=5)
         started = time.perf_counter()
         try:
-            ip_address = None
             if proxy_type == "SOCKS5":
                 connector = ProxyConnector.from_url(f"socks5://{proxy}")
                 async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                     async with session.get(CHECK_URL) as response:
                         if response.status == 200:
-                            data = await response.json(content_type=None)
-                            ip_address = data.get("ip")
-                            duration = (time.perf_counter() - started) * 1000
-                            return proxy, duration, ip_address
+                            ip_address = (await response.text()).strip()
+                            if ip_address and len(ip_address) < 45:
+                                duration = (time.perf_counter() - started) * 1000
+                                return proxy, duration, ip_address
             else:
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(CHECK_URL, proxy=f"http://{proxy}") as response:
                         if response.status == 200:
-                            data = await response.json(content_type=None)
-                            ip_address = data.get("ip")
-                            duration = (time.perf_counter() - started) * 1000
-                            return proxy, duration, ip_address
+                            ip_address = (await response.text()).strip()
+                            if ip_address and len(ip_address) < 45:
+                                duration = (time.perf_counter() - started) * 1000
+                                return proxy, duration, ip_address
         except Exception:
             pass
         return proxy, None, None
