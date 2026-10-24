@@ -108,7 +108,7 @@ async def web_server() -> None:
 async def start(message):
     await bot.reply_to(
         message,
-        "<b>Proxy Hunter Bot (Multi-API Version)</b>\n\n"
+        "<b>Proxy Finder Bot</b>\n\n"
         "အောက်ပါ Commands များကို အသုံးပြု၍ Proxy ရှာဖွေနိုင်ပါသည်:\n"
         "• <code>/http</code> - HTTP Proxies ရှာရန်\n"
         "• <code>/https</code> - HTTPS Proxies ရှာရန်\n"
@@ -230,7 +230,13 @@ async def send_results(chat_id: int, title: str, results: List[Tuple[str, float,
         for proxy, milliseconds, ip in batch:
             safe_proxy = html.escape(proxy)
             safe_ip = html.escape(ip or "N/A")
-            text_lines.append(f"• <code>{safe_proxy}</code> | IP: <code>{safe_ip}</code> | {speed_label(milliseconds)} ({milliseconds:.0f} ms)")
+            
+            # Proxy မှ Port ကို ယူ၍ Check လုပ်လို့ထွက်လာသော IP နှင့် ပူးတွဲဖော်ပြခြင်း
+            port = proxy.split(":")[-1] if ":" in proxy else ""
+            ip_with_port = f"{safe_ip}:{port}" if port else safe_ip
+            
+            # စာသားများ မထပ်မိစေရန်နှင့် သပ်သပ်ရပ်ရပ်ဖြစ်စေရန် အောက်ခံစာကြောင်းဖြင့် ခွဲထုတ်ပြသခြင်း
+            text_lines.append(f"• <code>{safe_proxy}</code>\n  └ IP: <code>{ip_with_port}</code> | {speed_label(milliseconds)} ({milliseconds:.0f} ms)")
         
         await bot.send_message(
             chat_id,
@@ -241,7 +247,7 @@ async def send_results(chat_id: int, title: str, results: List[Tuple[str, float,
 
 async def hunt_proxy_process(message, proxy_type: str) -> None:
     chat_id = message.chat.id
-    status_message = await bot.send_message(chat_id, f"🔍 API များမှ {proxy_type} proxy စာရင်းများကို စုဆောင်းနေပါသည်…")
+    status_message = await bot.send_message(chat_id, f"🔍  {proxy_type} proxy စာရင်းများကို စုဆောင်းနေပါသည်…")
     try:
         proxies = await fetch_proxy_list(proxy_type)
     except Exception as exc:
